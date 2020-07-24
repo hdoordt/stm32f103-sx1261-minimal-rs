@@ -2,6 +2,8 @@
 
 A minimal application for sending data with an SX1261 modem from an STM32F103 CPU.
 
+*Note: I have not yet been able to confirm whether this code works*
+
 ## To run:
 
 - Install openocd and [Rust](https://rustup.rs/)
