@@ -46,6 +46,11 @@ fn main() -> ! {
     let mut gpioa = peripherals.GPIOA.split(&mut rcc.apb2);
     let mut gpiob = peripherals.GPIOB.split(&mut rcc.apb2);
 
+    // Init LED on pin D2
+    let mut led_pin = gpioa
+        .pa10
+        .into_push_pull_output_with_state(&mut gpioa.crh, High);
+
     // Init SPI1
     let spi1_sck = gpioa.pa5.into_alternate_push_pull(&mut gpioa.crl);
     let spi1_miso = gpioa.pa6.into_floating_input(&mut gpioa.crl);
@@ -73,17 +78,17 @@ fn main() -> ! {
     );
 
     // Init SX1261 pins
-    
+
     let lora_nreset = gpioa
         .pa0
         .into_push_pull_output_with_state(&mut gpioa.crl, High);
-    
+
     let lora_nss = gpioa
         .pa8
         .into_push_pull_output_with_state(&mut gpioa.crh, High);
-    
+
     let lora_busy = gpiob.pb5.into_floating_input(&mut gpiob.crl);
-    
+
     let lora_dio1 = gpiob.pb10.into_floating_input(&mut gpiob.crh);
     // D8
     let _lora_ant = gpioa
@@ -93,13 +98,15 @@ fn main() -> ! {
     let delay = Delay::new(core_peripherals.SYST, clocks);
 
     let mut sx = LoRa {
-        nss: lora_nss, // D7
-        busy: lora_busy, // D4
+        nss: lora_nss,       // D7
+        busy: lora_busy,     // D4
         nreset: lora_nreset, // A0
-        dio1: lora_dio1, // D6
+        dio1: lora_dio1,     // D6
         delay,
         spi: spi1,
     };
+
+    let message_payload = b"Hello, LoRa world!";
 
     // Reset the device
     sx.nreset.set_low().unwrap();
@@ -114,19 +121,26 @@ fn main() -> ! {
 
     // 2. Define the protocol (LoRa® or FSK) with the command SetPacketType(...)
     // Packet type = LoRa
-    sx.spi_write(&[0x8A, 0x00]).unwrap();
+    sx.spi_write(&[0x8A, 0x01]).unwrap();
 
     // 3. Define the RF frequency with the command SetRfFrequency(...)
-    // 13.4.1.: RFfrequecy = (RFfreq * Fxtal) / 2^25
-    // = (868M * 32M) / 2^25
-    // = 827789301
-    let rf_frequecy: u32 = 827789301;
+    // 13.4.1.: RFfrequency = (RFfreq * Fxtal) / 2^25 = 868M
+    // RFfreq = RFfrequency * (2^25/32,000,000)
+    // = 868M * (2^25/32,000,000)
+    // = 910163968
+    let rf_frequecy: u32 = 910163968;
     sx.spi_cmd(|spi| {
         spi.write(&[0x86])
             .and_then(|_| spi.write(&rf_frequecy.to_be_bytes()))
             .unwrap()
     })
     .unwrap();
+
+    // Calibrate
+    sx.spi_write(&[0x89, 0x7F]).unwrap();
+
+    // Calibrate Image
+    sx.spi_write(&[0x98, 0xD7, 0xDB]).unwrap();
 
     // 4. Define the Power Amplifier configuration with the command SetPaConfig(...)
     // Duty cycle: 0x04
@@ -147,27 +161,38 @@ fn main() -> ! {
     // 7. Send the payload to the data buffer with the command WriteBuffer(...)
     sx.spi_cmd(|spi| {
         spi.write(&[0x0E, 0x00])
-            .and_then(|_| spi.write(b"Hello, LoRa world!"))
+            .and_then(|_| spi.write(message_payload))
             .unwrap()
     })
     .unwrap();
 
     // 8. Define the modulation parameter according to the chosen protocol with the command SetModulationParams(...) 1
-    // Spread factor: SF7
-    // Bandwidth: LORA_BW_125
+    // Spread factor: SF12
+    // Bandwidth: LORA_BW_7
     // Coding rate: LORA_CR_4_5
     // Low data rate optimize: OFF
-    sx.spi_write(&[0x8B, 0x07, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])
+    sx.spi_write(&[0x8B, 0x0C, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])
         .unwrap();
 
     // 9. Define the frame format to be used with the command SetPacketParams(...) 2
     // Preamble length: 8
     // Header type: Variable length packet (explicit header)
-    // Payload length: 32
+    // Payload length: length of `message_payload`
     // CRC type: ON
     // Invert IQ: Standard IQ setup
-    sx.spi_write(&[0x8C, 8, 0x00, 32, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])
-        .unwrap();
+    sx.spi_write(&[
+        0x8C,
+        8,
+        0x00,
+        message_payload.len() as u8,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+    ])
+    .unwrap();
 
     // 10. Configure DIO and IRQ: use the command SetDioIrqParams(...) to select TxDone IRQ and map this IRQ to a DIO (DIO1,
     // DIO2 or DIO3)
@@ -187,6 +212,8 @@ fn main() -> ! {
     // Sync word = 0x1424
     sx.spi_write(&[0x0D, 0x07, 0x40, 0x14, 0x24]).unwrap();
 
+    sx.delay.delay_ms(500u16);
+    led_pin.set_low().unwrap();
     // 12. Set the circuit in transmitter mode to start transmission with the command SetTx(). Use the parameter to enable Timeout
     // Timeout: 0 (disabled)
     sx.spi_write(&[0x83, 0x00, 0x00, 0x00]).unwrap();
@@ -202,16 +229,9 @@ fn main() -> ! {
     // Clear all flags
     sx.spi_write(&[0x02, 0xFF, 0xFF]).unwrap();
 
-    // Blink LED on pin D2
-    let mut led_pin = gpioa
-        .pa10
-        .into_push_pull_output_with_state(&mut gpioa.crh, High);
-    loop {
-        sx.delay.delay_ms(500u16);
-        led_pin.set_low().unwrap();
-        sx.delay.delay_ms(500u16);
-        led_pin.set_high().unwrap();
-    }
+    sx.delay.delay_ms(500u16);
+    led_pin.set_high().unwrap();
+    loop {}
 }
 
 /// Wrapper around every peripheral needed to communicate with the sx1261
