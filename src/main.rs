@@ -180,18 +180,23 @@ fn main() -> ! {
     // Payload length: length of `message_payload`
     // CRC type: ON
     // Invert IQ: Standard IQ setup
-    sx.spi_write(&[
-        0x8C,
-        8,
-        0x00,
-        message_payload.len() as u8,
-        0x01,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-    ])
+    let preamble_length = 8u16.to_be_bytes();
+    sx.spi_cmd(|spi| {
+        spi.write(&[0x8C])
+            .and_then(|_| spi.write(&preamble_length))
+            .and_then(|_| {
+                spi.write(&[
+                    message_payload.len() as u8,
+                    0x01,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                ])
+            })
+            .unwrap()
+    })
     .unwrap();
 
     // 10. Configure DIO and IRQ: use the command SetDioIrqParams(...) to select TxDone IRQ and map this IRQ to a DIO (DIO1,
