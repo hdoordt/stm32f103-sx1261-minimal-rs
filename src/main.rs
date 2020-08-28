@@ -167,11 +167,11 @@ fn main() -> ! {
     .unwrap();
 
     // 8. Define the modulation parameter according to the chosen protocol with the command SetModulationParams(...) 1
-    // Spread factor: SF12
-    // Bandwidth: LORA_BW_7
+    // Spread factor: SF7
+    // Bandwidth: LORA_BW_125
     // Coding rate: LORA_CR_4_5
     // Low data rate optimize: OFF
-    sx.spi_write(&[0x8B, 0x0C, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])
+    sx.spi_write(&[0x8B, 0x07, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])
         .unwrap();
 
     // 9. Define the frame format to be used with the command SetPacketParams(...) 2
@@ -183,16 +183,15 @@ fn main() -> ! {
     let preamble_length = 8u16.to_be_bytes();
     sx.spi_cmd(|spi| {
         spi.write(&[0x8C])
-            .and_then(|_| spi.write(&preamble_length))
+            .and_then(|_| spi.write(&preamble_length)) // 1 and 2: preamble length
             .and_then(|_| {
                 spi.write(&[
-                    message_payload.len() as u8,
-                    0x01,
-                    0x00,
-                    0x00,
-                    0x00,
-                    0x00,
-                    0x00,
+                    0x00, // 3: header type (explicit)
+                    message_payload.len() as u8, // 4 payload length
+                    0x01, // 5: crc type (on)
+                    0x00, // 6: invert IQ (standard)
+                    0x00, // 7: RFU
+                    0x00, // 8: RFU
                 ])
             })
             .unwrap()
