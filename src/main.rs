@@ -192,6 +192,7 @@ fn main() -> ! {
                     0x00, // 6: invert IQ (standard)
                     0x00, // 7: RFU
                     0x00, // 8: RFU
+                    0x00, // 9: RFU
                 ])
             })
             .unwrap()
@@ -250,7 +251,7 @@ struct LoRa {
 
 impl LoRa {
     /// Handles pulling nss low and delaying before actually doing any spi transaction.
-    /// It also blocks while the busy line is high.
+    /// It also blocks while the busy line is high before starting the transaction.
     fn spi_cmd<F>(&mut self, mut cmd: F) -> core::result::Result<(), core::convert::Infallible>
     where
         F: FnMut(&mut Spi1),
